@@ -1,3 +1,4 @@
 .env
 .venv
-/tools_start/
+/tools_start.py
+__pycache__/
