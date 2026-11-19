@@ -7,6 +7,7 @@ import base64
 import json
 from dotenv import load_dotenv
 import xml.etree.ElementTree as ET
+from urllib.parse import quote
 
 load_dotenv()             
 
@@ -235,7 +236,15 @@ def get_hospital_detail(id : str):
     items = root.find("./body/items/item")               
     if items is None:
         return fail("NO_DATA", f"'{id}'에 해당하는 병원이 없습니다.")
-    
+
+    name = items.findtext("dutyName", "").strip()
+    lat = items.findtext("wgs84Lat", "").strip()
+    lon = items.findtext("wgs84Lon", "").strip()
+    direction_url = None
+
+    if name and lat and lon:
+        direction_url = f"https://map.kakao.com/link/to/{quote(name, safe='')},{lat},{lon}"
+
     hours = {}
     days = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일", "공휴일"]
 
@@ -248,50 +257,10 @@ def get_hospital_detail(id : str):
     return ok({
         "id": items.findtext("hpid"),
         "name": items.findtext("dutyName"),
+        "address": items.findtext("dutyAddr"),
         "hours": hours,
+        "direction_url" : direction_url
     })
-
-
-def search_hospital_location(id : str):
-    if not id:
-        return fail("BAD_ARGUMENT", "병원ID는 필수입니다.")
-    key = os.getenv(HOSPITAL_KEY_NAME)
-    detail_url = (
-        "https://apis.data.go.kr/B552657/HsptlAsembySearchService/"
-         "getHsptlBassInfoInqire"        
-    )
-    if not key:
-        return fail("INVALID_KEY", f"{HOSPITAL_KEY_NAME}가 없습니다.") 
-
-    params = {
-        "serviceKey" : key,
-        "HPID" : id
-    }   
-
-    try:
-        res = requests.get(detail_url, params=params,  
-                           timeout=10)
-        res.raise_for_status()
-        root = ET.fromstring(res.content)
-        
-    except requests.RequestException:
-        return fail("UPSTREAM_ERROR", "병원 API를 호출하지 못했습니다.")
-    except ET.ParseError:
-        return fail("INVALID_RESPONSE", "병원 API 응답을 XML로 읽을 수 없습니다.")
-
-    if root.findtext("./header/resultCode") != "00":
-        return fail("UPSTREAM_ERROR", "병원 API에서 정상 결과를 받지 못했습니다.")
-
-    item = root.find("./body/items/item")
-    if item is None:
-        return fail("NO_DATA", f"'{id}'에 해당하는 병원이 없습니다.")
-
-    address = item.findtext("dutyAddr")
-    if not address:
-        return fail("NO_DATA", "이 병원의 주소가 등록되어 있지 않습니다.")
-    
-    return ok({"items": [{"name": item.findtext("dutyName"), "location": address}]})
-
 
 
 
@@ -315,22 +284,15 @@ TOOLS = {t.name: t for t in [
         func=search_hospitals),
 
     Tool(name="get_hospital_detail",
-         description="병원ID로 해당 병원의 요일별 진료 시간을 조회합니다." 
-         "사용자의 방문 가능 시간을 기반으로 사용자 일정과 비교할 병원의 요일별 진료 시간을 조회합니다.",
+         description="병원ID로 해당 병원의 요일별 진료 시간, 주소, 길찾기 링크를 조회합니다." 
+         "사용자의 방문 가능 시간을 기반으로 사용자 일정과 비교할 병원의 요일별 진료 시간을 조회합니다."
+         ,
          parameters={"type" : "object", 
                      "properties": {"id" : {"type" : "string"}},
                      "required": ["id"]
                      },
          func=get_hospital_detail),
-
-    Tool(name="search_hospital_location",
-         description="병원ID로 해당 병원의 정확한 위치를 조회합니다.",
-         parameters={"type" : "object", 
-                     "properties": {"id" : {"type" : "string"}},
-                     "required": ["id"]
-                     },
-        func=search_hospital_location)
-        
+       
 ]}
 
 
